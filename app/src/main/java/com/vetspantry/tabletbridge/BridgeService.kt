@@ -144,7 +144,7 @@ class BridgeService : LifecycleService() {
             when (cmd.optString("type")) {
                 "hello" -> JSONObject()
                     .put("type", "hello")
-                    .put("device", "${Build.MANUFACTURER} ${Build.model}".trim())
+                    .put("device", "${Build.MANUFACTURER} ${Build.MODEL}".trim())
                     .put("android", Build.VERSION.RELEASE)
                     .put("screen", screenActive)
                     .put("clients", clientCount)
