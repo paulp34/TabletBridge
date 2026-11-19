@@ -1,0 +1,346 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TabletBridge Console</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:#111; color:#eee; height:100vh; display:flex; flex-direction:column; }
+  header { display:flex; align-items:center; gap:12px; padding:8px 12px; background:#1c1c1c; }
+  header h1 { font-size:15px; margin:0; }
+  #connState { font-size:12px; padding:2px 8px; border-radius:10px; background:#7a2020; }
+  #connState.on { background:#1f6b34; }
+  #devInfo { font-size:12px; color:#999; }
+  #warn { display:none; font-size:12px; color:#ffd; background:#8a5a10; padding:2px 8px; border-radius:8px; }
+  .spacer { flex:1; }
+  main { flex:1; display:flex; gap:10px; padding:10px; min-height:0; }
+  .pane { display:flex; flex-direction:column; min-width:0; }
+  #camPane { flex:1.2; } #scrPane { flex:1; }
+  .pane h2 { font-size:13px; margin:0 0 6px; color:#9ad; }
+  .frameWrap { flex:1; display:flex; align-items:center; justify-content:center; background:#000; border-radius:8px; overflow:hidden; position:relative; min-height:200px; }
+  .frameWrap img { max-width:100%; max-height:100%; display:block; }
+  #scrWrap { cursor:crosshair; touch-action:none; }
+  .off { color:#666; font-size:13px; padding:20px; text-align:center; }
+  #barBox { position:absolute; border:2px solid #4f8; border-radius:4px; display:none; pointer-events:none; }
+  aside { width:300px; display:flex; flex-direction:column; gap:8px; }
+  .panel { background:#1c1c1c; border-radius:8px; padding:10px; overflow:auto; }
+  .panel h3 { margin:0 0 6px; font-size:13px; }
+  #scans { flex:1; min-height:0; display:flex; flex-direction:column; }
+  #scanList { overflow:auto; flex:1; }
+  .scan { padding:6px; border-bottom:1px solid #333; font-size:13px; cursor:pointer; }
+  .scan:hover { background:#262626; }
+  .scan .fmt { color:#8cf; font-size:11px; }
+  .scan .val { font-family:monospace; word-break:break-all; }
+  #controls { display:flex; flex-wrap:wrap; gap:6px; }
+  button { background:#2b2b2b; color:#eee; border:1px solid #444; border-radius:6px; padding:8px 12px; cursor:pointer; font-size:13px; }
+  button:hover { background:#3a3a3a; }
+  button.on { background:#1f6b34; }
+  #textInput { flex:1; min-width:120px; background:#111; color:#eee; border:1px solid #444; border-radius:6px; padding:8px; }
+  .row { display:flex; gap:6px; }
+  #toast { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); background:#333; padding:8px 16px; border-radius:8px; font-size:13px; display:none; z-index:9; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TabletBridge Console</h1>
+  <span id="connState">disconnected</span>
+  <span id="devInfo"></span>
+  <span id="warn" title="Remote taps/swipes need the accessibility service enabled on the tablet">input control off</span>
+  <span class="spacer"></span>
+  <button id="passBtn" title="Change passcode">&#128273;</button>
+</header>
+<main>
+  <section class="pane" id="camPane">
+    <h2>Camera feed (barcode in view = auto-scanned)</h2>
+    <div class="frameWrap" id="camWrap">
+      <div class="off" id="camOff">waiting for camera&hellip;</div>
+      <img id="camImg" style="display:none" alt="camera">
+      <div id="barBox"></div>
+    </div>
+  </section>
+  <section class="pane" id="scrPane">
+    <h2>Tablet screen &mdash; click here to tap, drag to swipe</h2>
+    <div class="frameWrap" id="scrWrap">
+      <div class="off" id="scrOff">not shared &mdash; press &ldquo;Share tablet screen&rdquo; on the tablet</div>
+      <img id="scrImg" style="display:none" alt="screen">
+    </div>
+  </section>
+  <aside>
+    <div id="controls">
+      <button data-key="back">&#9001; Back</button>
+      <button data-key="home">&#8962; Home</button>
+      <button data-key="recents">&#9633; Recents</button>
+      <button id="torchBtn">&#128294; Torch</button>
+      <button id="lensBtn">&#128247; Front</button>
+    </div>
+    <div class="row">
+      <input id="textInput" placeholder="Type &rarr; tablet's focused field" autocomplete="off">
+      <button id="sendText">Send</button>
+    </div>
+    <div class="panel" id="scans">
+      <h3>Barcode scans <span id="scanCount"></span></h3>
+      <div id="scanList"><div class="off">none yet</div></div>
+    </div>
+    <div class="row">
+      <button id="copyBtn" style="flex:1">Copy last scan</button>
+    </div>
+  </aside>
+</main>
+<div id="toast"></div>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var camImg = $('camImg'), scrImg = $('scrImg');
+  var ws = null, torch = false, lens = 'back', pendingText = '', textTimer = null, lastPromptAt = 0;
+  var everOpened = false;
+  var meta = { camera: null, screen: null };
+  var latestUrl = { camera: null, screen: null };
+  var scans = [];
+
+  function connect() {
+    var key = localStorage.getItem('tbKey');
+    if (!key) {
+      var now = Date.now();
+      if (now - lastPromptAt < 1500) { setTimeout(connect, 2000); return; }
+      lastPromptAt = now;
+      var k = prompt('Enter the passcode shown in the TabletBridge app:');
+      if (!k) { setTimeout(connect, 5000); return; }
+      localStorage.setItem('tbKey', k.trim());
+    }
+    ws = new WebSocket('ws://' + location.host + '/ws?key=' + encodeURIComponent(localStorage.getItem('tbKey')));
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = function () { everOpened = true; setConn(true); };
+    ws.onclose = function () {
+      if (!everOpened && localStorage.getItem('tbKey')) {
+        localStorage.removeItem('tbKey'); // wrong passcode — ask again
+      }
+      setConn(false);
+      setTimeout(connect, 2000);
+    };
+    ws.onerror = function () { try { ws.close(); } catch (e) {} };
+    ws.onmessage = onMessage;
+  }
+
+  function setConn(on) {
+    var el = $('connState');
+    el.textContent = on ? 'connected' : 'disconnected';
+    el.classList.toggle('on', on);
+    if (on) send({ type: 'hello' });
+  }
+
+  function send(obj) {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+  }
+
+  function toast(msg) {
+    var el = $('toast');
+    el.textContent = msg;
+    el.style.display = 'block';
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.style.display = 'none'; }, 3500);
+  }
+
+  function onMessage(e) {
+    if (e.data instanceof ArrayBuffer) {
+      var u8 = new Uint8Array(e.data);
+      var blob = new Blob([u8.slice(1)], { type: 'image/jpeg' });
+      show(u8[0] === 1 ? 'camera' : 'screen', blob);
+      return;
+    }
+    var msg;
+    try { msg = JSON.parse(e.data); } catch (err) { return; }
+    switch (msg.type) {
+      case 'hello':
+        $('devInfo').textContent = msg.device + ' \u00b7 Android ' + msg.android;
+        if (msg.cameraMeta) { var cm = JSON.parse(msg.cameraMeta); meta.camera = cm; layout(cm); }
+        if (msg.screenMeta) { var sm = JSON.parse(msg.screenMeta); meta.screen = sm; layout(sm); }
+        setWarn(!msg.a11y);
+        break;
+      case 'meta':
+        meta[msg.stream] = msg;
+        layout(msg);
+        break;
+      case 'barcode':
+        addScan(msg);
+        break;
+      case 'state':
+        if (msg.screen === false) {
+          $('scrOff').style.display = '';
+          scrImg.style.display = 'none';
+          if (latestUrl.screen) { URL.revokeObjectURL(latestUrl.screen); latestUrl.screen = null; }
+        }
+        setWarn(!msg.a11y);
+        break;
+      case 'ack':
+        if (msg.ok === false) {
+          toast('Input failed' + (msg.a11y ? '' : ' \u2014 enable TabletBridge Input Control in the tablet\u2019s Accessibility settings'));
+        }
+        break;
+      case 'error':
+        toast(msg.message || 'error');
+        break;
+    }
+  }
+
+  function setWarn(on) { $('warn').style.display = on ? '' : 'none'; }
+
+  function show(stream, blob) {
+    var img = stream === 'camera' ? camImg : scrImg;
+    var off = stream === 'camera' ? $('camOff') : $('scrOff');
+    off.style.display = 'none';
+    img.style.display = '';
+    var url = URL.createObjectURL(blob);
+    img.src = url;
+    if (latestUrl[stream]) URL.revokeObjectURL(latestUrl[stream]);
+    latestUrl[stream] = url;
+    if (stream === 'camera') drawBox(scans[0]);
+  }
+
+  function layout(m) {
+    var img = m.stream === 'camera' ? camImg : scrImg;
+    img.style.aspectRatio = m.w + ' / ' + m.h;
+  }
+
+  function addScan(msg) {
+    scans.unshift({ value: msg.value, format: msg.format, box: msg.box, time: new Date().toLocaleTimeString() });
+    if (scans.length > 200) scans.pop();
+    renderScans();
+    beep();
+  }
+
+  function renderScans() {
+    $('scanCount').textContent = '(' + scans.length + ')';
+    var list = $('scanList');
+    list.innerHTML = '';
+    scans.forEach(function (s) {
+      var div = document.createElement('div');
+      div.className = 'scan';
+      var fmt = document.createElement('div');
+      fmt.className = 'fmt';
+      fmt.textContent = s.format + ' \u00b7 ' + s.time;
+      var val = document.createElement('div');
+      val.className = 'val';
+      val.textContent = s.value;
+      div.appendChild(fmt);
+      div.appendChild(val);
+      div.addEventListener('click', function () {
+        if (navigator.clipboard) navigator.clipboard.writeText(s.value);
+      });
+      list.appendChild(div);
+    });
+    if (!scans.length) list.innerHTML = '<div class="off">none yet</div>';
+    drawBox(scans[0]);
+  }
+
+  function drawBox(s) {
+    var box = $('barBox');
+    if (!s || !s.box || !meta.camera || !camImg.naturalWidth) { box.style.display = 'none'; return; }
+    var x = s.box[0], y = s.box[1], w = s.box[2], h = s.box[3];
+    var iw = camImg.naturalWidth, ih = camImg.naturalHeight;
+    var wr = $('camWrap').getBoundingClientRect();
+    var ir = camImg.getBoundingClientRect();
+    box.style.display = 'block';
+    box.style.left = (ir.left - wr.left + x / iw * ir.width) + 'px';
+    box.style.top = (ir.top - wr.top + y / ih * ir.height) + 'px';
+    box.style.width = (w / iw * ir.width) + 'px';
+    box.style.height = (h / ih * ir.height) + 'px';
+  }
+
+  var ptr = null;
+  var wrap = $('scrWrap');
+  function rel(e) {
+    var r = scrImg.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1),
+      y: Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1)
+    };
+  }
+  wrap.addEventListener('pointerdown', function (e) {
+    if (!meta.screen) return;
+    ptr = Object.assign(rel(e), { t: Date.now() });
+    try { wrap.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  wrap.addEventListener('pointerup', function (e) {
+    if (!ptr) return;
+    var p = rel(e);
+    if (Math.hypot(p.x - ptr.x, p.y - ptr.y) < 0.02) {
+      send({ type: 'tap', x: p.x, y: p.y });
+    } else {
+      send({
+        type: 'swipe',
+        x1: ptr.x, y1: ptr.y, x2: p.x, y2: p.y,
+        ms: Math.min(Math.max(Date.now() - ptr.t, 80), 2000)
+      });
+    }
+    ptr = null;
+  });
+
+  window.addEventListener('keydown', function (e) {
+    var t = e.target.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA') return;
+    if (!ws || ws.readyState !== 1) return;
+    if (e.key === 'Enter') {
+      flushText();
+      send({ type: 'text', value: '\n' });
+      e.preventDefault();
+    } else if (e.key === 'Backspace') {
+      send({ type: 'del', count: 1 });
+      e.preventDefault();
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      pendingText += e.key;
+      scheduleText();
+      e.preventDefault();
+    }
+  });
+  function scheduleText() { clearTimeout(textTimer); textTimer = setTimeout(flushText, 350); }
+  function flushText() {
+    if (pendingText) { send({ type: 'text', value: pendingText, append: true }); pendingText = ''; }
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-key]'), function (b) {
+    b.addEventListener('click', function () { send({ type: 'key', action: b.getAttribute('data-key') }); });
+  });
+  $('torchBtn').addEventListener('click', function () {
+    torch = !torch;
+    send({ type: 'torch', on: torch });
+    $('torchBtn').classList.toggle('on', torch);
+  });
+  $('lensBtn').addEventListener('click', function () {
+    lens = lens === 'back' ? 'front' : 'back';
+    send({ type: 'camera', lens: lens });
+    $('lensBtn').textContent = lens === 'back' ? '\uD83D\uDCF7 Front' : '\uD83D\uDCF7 Back';
+  });
+  $('sendText').addEventListener('click', function () {
+    var v = $('textInput').value;
+    if (v) { send({ type: 'text', value: v, append: true }); $('textInput').value = ''; }
+  });
+  $('copyBtn').addEventListener('click', function () {
+    if (!scans.length) { toast('No scans yet'); return; }
+    if (navigator.clipboard) navigator.clipboard.writeText(scans[0].value);
+    toast('Copied: ' + scans[0].value);
+  });
+  $('passBtn').addEventListener('click', function () {
+    localStorage.removeItem('tbKey');
+    toast('Passcode cleared \u2014 reconnecting');
+    try { ws.close(); } catch (e) {}
+  });
+
+  var audio = null;
+  function beep() {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      var o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = 880; g.gain.value = 0.15;
+      o.connect(g); g.connect(audio.destination);
+      o.start(); o.stop(audio.currentTime + 0.12);
+    } catch (e) {}
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>

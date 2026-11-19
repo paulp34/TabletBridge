@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">TabletBridge</string>
+    <string name="accessibility_label">TabletBridge Input Control</string>
+    <string name="accessibility_desc">Lets a trusted host computer send taps, swipes and text to this tablet over USB.</string>
+</resources>
