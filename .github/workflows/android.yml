@@ -8,9 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       - uses: actions/checkout@v4
 
@@ -19,10 +16,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install SDK components
-        run: sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+      - name: Accept SDK licenses and install components
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" > /dev/null
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -31,8 +28,21 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
 
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk TabletBridge-debug.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: TabletBridge-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: TabletBridge-debug.apk
           if-no-files-found: error
+
+      - name: Publish to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0
+          name: TabletBridge v1.0
+          files: TabletBridge-debug.apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
