@@ -51,7 +51,7 @@ class BridgeServer(
 ) : Thread("bridge-server") {
 
     companion object {
-        private const val WS_MAGIC = "258EAFA9-E914-47DA-95CA-C5AB0DC85B11"
+        private const val WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
         const val CHANNEL_CAMERA = 1
         const val CHANNEL_SCREEN = 2
     }
@@ -60,6 +60,22 @@ class BridgeServer(
     private var serverSocket: ServerSocket? = null
     private val sessions = CopyOnWriteArraySet<WsSession>()
     private val sessionCounter = AtomicInteger(0)
+    private val eventLog = ArrayDeque<String>()
+    private val eventLock = Any()
+
+    private fun logEvent(message: String) {
+        val line = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date()) + "  " + message
+        synchronized(eventLock) {
+            eventLog.addLast(line)
+            while (eventLog.size > 60) eventLog.removeFirst()
+        }
+        android.util.Log.i("BridgeServer", message)
+    }
+
+    fun statusText(): String = synchronized(eventLock) {
+        if (eventLog.isEmpty()) "No connections yet." else eventLog.joinToString("\n")
+    }
 
     override fun run() {
         val ss = ServerSocket()
@@ -107,6 +123,7 @@ class BridgeServer(
         val input = DataInputStream(BufferedInputStream(socket.getInputStream()))
         val output = BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
         val requestLine = input.readLine() ?: return closeQuietly(socket)
+        logEvent("HTTP $requestLine")
         val parts = requestLine.split(" ")
         if (parts.size < 2) return closeQuietly(socket)
         val path = parts[1]
@@ -121,6 +138,7 @@ class BridgeServer(
 
         if (headers["upgrade"]?.lowercase() == "websocket") {
             val key = headers["sec-websocket-key"]
+            logEvent("WS attempt: key=${key?.take(6)}… passcodeMatch=${key != null && queryParam(path, "key") == passcode}")
             if (key == null || queryParam(path, "key") != passcode) {
                 respond(output, "401 Unauthorized", "text/plain", "unauthorized".toByteArray())
                 closeQuietly(socket)
@@ -147,6 +165,10 @@ class BridgeServer(
                 respond(output, "200 OK", "text/plain", "ok".toByteArray())
                 closeQuietly(socket)
             }
+            path.startsWith("/status") -> {
+                respond(output, "200 OK", "text/plain; charset=utf-8", statusText().toByteArray(Charsets.UTF_8))
+                closeQuietly(socket)
+            }
             path.startsWith("/diag") -> {
                 val ok = queryParam(path, "key") == passcode
                 if (ok) respond(output, "200 OK", "text/plain", "AUTH OK".toByteArray())
@@ -164,6 +186,7 @@ class BridgeServer(
         val accept = Base64.getEncoder().encodeToString(
             MessageDigest.getInstance("SHA-1").digest((key + WS_MAGIC).toByteArray(Charsets.UTF_8))
         )
+        logEvent("WS handshake 101 → key=${key.take(6)}… accept=${accept.take(8)}…")
         val handshake = "HTTP/1.1 101 Switching Protocols\r\n" +
             "Upgrade: websocket\r\n" +
             "Connection: Upgrade\r\n" +
@@ -173,6 +196,7 @@ class BridgeServer(
 
         val session = WsSession(sessionCounter.incrementAndGet(), socket, input, output)
         sessions.add(session)
+        logEvent("WS session #${session.id} registered (total=${sessions.size})")
         sink.onSessionsChanged(sessions.size)
         Thread({ session.readLoop() }, "ws-${session.id}").apply {
             isDaemon = true
@@ -313,7 +337,9 @@ class BridgeServer(
                     }
                 }
             } catch (e: IOException) {
-                // connection dropped
+                logEvent("WS #${id} readLoop IOException: ${e.message}")
+            } catch (e: Throwable) {
+                logEvent("WS #${id} readLoop UNEXPECTED ${e.javaClass.simpleName}: ${e.message}")
             }
             kill()
         }
@@ -321,6 +347,7 @@ class BridgeServer(
         fun kill() {
             if (alive) {
                 alive = false
+                logEvent("WS session #${id} killed (clients→${sessions.size - 1})")
                 closeQuietly(socket)
                 sessions.remove(this)
                 sink.onSessionsChanged(sessions.size)
