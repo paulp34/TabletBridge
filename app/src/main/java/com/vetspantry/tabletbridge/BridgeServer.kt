@@ -154,9 +154,10 @@ class BridgeServer(
                 if (bytes == null) {
                     respond(output, "404 Not Found", "text/plain", "missing web UI".toByteArray())
                 } else {
-                    // Inject the passcode so the console auto-connects with no user input.
+                    // Inject the passcode into the string literal only — the
+                    // bare placeholder is also the variable name in the script.
                     val html = String(bytes, Charsets.UTF_8)
-                        .replace("__TB_KEY__", passcode)
+                        .replace("\"__TB_KEY__\"", passcode)
                     respond(output, "200 OK", "text/html; charset=utf-8", html.toByteArray(Charsets.UTF_8))
                 }
                 closeQuietly(socket)
