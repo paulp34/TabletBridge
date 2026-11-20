@@ -331,6 +331,7 @@ class BridgeServer(
     private fun respond(output: OutputStream, status: String, contentType: String, body: ByteArray) {
         val head = "HTTP/1.1 $status\r\n" +
             "Content-Type: $contentType\r\n" +
+            "Cache-Control: no-store, no-cache, must-revalidate\r\n" +
             "Content-Length: ${body.size}\r\n" +
             "Connection: close\r\n\r\n"
         output.write(head.toByteArray(Charsets.US_ASCII))
