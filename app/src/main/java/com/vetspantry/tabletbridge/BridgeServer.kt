@@ -136,12 +136,21 @@ class BridgeServer(
                 if (bytes == null) {
                     respond(output, "404 Not Found", "text/plain", "missing web UI".toByteArray())
                 } else {
-                    respond(output, "200 OK", "text/html; charset=utf-8", bytes)
+                    // Inject the passcode so the console auto-connects with no user input.
+                    val html = String(bytes, Charsets.UTF_8)
+                        .replace("__TB_KEY__", passcode)
+                    respond(output, "200 OK", "text/html; charset=utf-8", html.toByteArray(Charsets.UTF_8))
                 }
                 closeQuietly(socket)
             }
             path.startsWith("/health") -> {
                 respond(output, "200 OK", "text/plain", "ok".toByteArray())
+                closeQuietly(socket)
+            }
+            path.startsWith("/diag") -> {
+                val ok = queryParam(path, "key") == passcode
+                if (ok) respond(output, "200 OK", "text/plain", "AUTH OK".toByteArray())
+                else respond(output, "401 Unauthorized", "text/plain", "AUTH FAIL - passcode mismatch".toByteArray())
                 closeQuietly(socket)
             }
             else -> {

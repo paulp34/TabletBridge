@@ -49,7 +49,6 @@
   <span id="devInfo"></span>
   <span id="warn" title="Remote taps/swipes need the accessibility service enabled on the tablet">input control off</span>
   <span class="spacer"></span>
-  <button id="passBtn" title="Change passcode">&#128273;</button>
 </header>
 <main>
   <section class="pane" id="camPane">
@@ -89,34 +88,29 @@
   </aside>
 </main>
 <div id="toast"></div>
+<script>window.__TB_KEY__ = "__TB_KEY__";</script>
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var camImg = $('camImg'), scrImg = $('scrImg');
-  var ws = null, torch = false, lens = 'back', pendingText = '', textTimer = null, lastPromptAt = 0;
+  var ws = null, torch = false, lens = 'back', pendingText = '', textTimer = null;
+  var KEY = window.__TB_KEY__ || '';
   var everOpened = false;
   var meta = { camera: null, screen: null };
   var latestUrl = { camera: null, screen: null };
   var scans = [];
 
   function connect() {
-    var key = localStorage.getItem('tbKey');
-    if (!key) {
-      var now = Date.now();
-      if (now - lastPromptAt < 1500) { setTimeout(connect, 2000); return; }
-      lastPromptAt = now;
-      var k = prompt('Enter the passcode shown in the TabletBridge app:');
-      if (!k) { setTimeout(connect, 5000); return; }
-      localStorage.setItem('tbKey', k.trim());
+    if (!KEY) {
+      toast('No passcode injected - reload the page');
+      setTimeout(connect, 5000);
+      return;
     }
-    ws = new WebSocket('ws://' + location.host + '/ws?key=' + encodeURIComponent(localStorage.getItem('tbKey')));
+    ws = new WebSocket('ws://' + location.host + '/ws?key=' + encodeURIComponent(KEY));
     ws.binaryType = 'arraybuffer';
     ws.onopen = function () { everOpened = true; setConn(true); };
     ws.onclose = function () {
-      if (!everOpened && localStorage.getItem('tbKey')) {
-        localStorage.removeItem('tbKey'); // wrong passcode — ask again
-      }
       setConn(false);
       setTimeout(connect, 2000);
     };
@@ -321,11 +315,6 @@
     if (!scans.length) { toast('No scans yet'); return; }
     if (navigator.clipboard) navigator.clipboard.writeText(scans[0].value);
     toast('Copied: ' + scans[0].value);
-  });
-  $('passBtn').addEventListener('click', function () {
-    localStorage.removeItem('tbKey');
-    toast('Passcode cleared \u2014 reconnecting');
-    try { ws.close(); } catch (e) {}
   });
 
   var audio = null;
