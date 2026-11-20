@@ -31,6 +31,7 @@ class ScreenStreamer(
     private var reader: ImageReader? = null
     private var lastFrameAt = 0L
     private var stopped = false
+    @Volatile private var lowBand = false
 
     fun start(resultCode: Int, data: Intent) {
         if (stopped) return
@@ -77,15 +78,20 @@ class ScreenStreamer(
         )
     }
 
+    fun setLowBand(on: Boolean) {
+        lowBand = on
+    }
+
     private fun pump(rd: ImageReader) {
         if (stopped) return
         val image = rd.acquireLatestImage() ?: return
         try {
             if (sink.clients() == 0) return
             val now = SystemClock.elapsedRealtime()
-            if (now - lastFrameAt < 120) return // ~8 fps is plenty for control
+            val frameGate = if (lowBand) 300 else 120 // ~3 fps vs ~8 fps
+            if (now - lastFrameAt < frameGate) return
             lastFrameAt = now
-            val jpeg = ImageUtils.rgbaToJpeg(image, 55) ?: return
+            val jpeg = ImageUtils.rgbaToJpeg(image, if (lowBand) 40 else 55) ?: return
             sink.broadcastBinary(BridgeServer.CHANNEL_SCREEN, jpeg)
         } finally {
             image.close()

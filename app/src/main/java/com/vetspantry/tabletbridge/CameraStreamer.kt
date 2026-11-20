@@ -49,6 +49,7 @@ class CameraStreamer(
     @Volatile private var lensFacing = CameraSelector.LENS_FACING_BACK
     @Volatile private var torchOn = false
     @Volatile private var active = false
+    @Volatile private var lowBand = false
 
     private var lastFrameAt = 0L
     private var lastRotation = -1
@@ -75,13 +76,14 @@ class CameraStreamer(
     private fun bind() {
         val p = provider ?: return
         p.unbindAll()
+        val targetSize = if (lowBand) Size(640, 480) else Size(1280, 720)
         val analysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setResolutionSelector(
                 ResolutionSelector.Builder()
                     .setResolutionStrategy(
                         ResolutionStrategy(
-                            Size(1280, 720),
+                            targetSize,
                             ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
                         )
                     )
@@ -100,6 +102,18 @@ class CameraStreamer(
     /** Only spend CPU on frames while a host is actually watching. */
     fun setActive(active: Boolean) {
         this.active = active
+    }
+
+    /** Halve resolution, fps and JPEG quality for marginal links (hotspot/Bluetooth). */
+    fun setLowBand(on: Boolean) {
+        if (lowBand == on) return
+        lowBand = on
+        mainHandler.post {
+            try {
+                bind()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     fun setTorch(on: Boolean): Boolean {
@@ -130,13 +144,14 @@ class CameraStreamer(
             if (!active || sink.clients() == 0) return
 
             val now = SystemClock.elapsedRealtime()
-            if (now - lastFrameAt < 90) return // ~10 fps cap
+            val frameGate = if (lowBand) 250 else 90 // ~4 fps vs ~10 fps
+            if (now - lastFrameAt < frameGate) return
             lastFrameAt = now
 
             val rotation = image.imageInfo.rotationDegrees
 
             // 1) JPEG for the live preview (also rotates the frame upright).
-            val jpeg = ImageUtils.toJpeg(image, 65)
+            val jpeg = ImageUtils.toJpeg(image, if (lowBand) 40 else 65)
             if (jpeg != null) {
                 if (rotation != lastRotation) {
                     lastRotation = rotation

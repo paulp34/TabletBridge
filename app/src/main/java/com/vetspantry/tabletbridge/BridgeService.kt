@@ -178,6 +178,13 @@ class BridgeService : LifecycleService() {
                 )
                 "del" -> ack("del", InputInjector.deleteChars(cmd.optInt("count", 1)))
                 "torch" -> ack("torch", cameraStreamer?.setTorch(cmd.optBoolean("on", true)) ?: false)
+                "lowband" -> {
+                    val on = cmd.optBoolean("on", false)
+                    cameraStreamer?.setLowBand(on)
+                    screenStreamer?.setLowBand(on)
+                    broadcastState()
+                    ack("lowband", true)
+                }
                 "camera" -> {
                     cameraStreamer?.switchLens(cmd.optString("lens", "back"))
                     ack("camera", true)

@@ -73,6 +73,7 @@
       <button data-key="recents">&#9633; Recents</button>
       <button id="torchBtn">&#128294; Torch</button>
       <button id="lensBtn">&#128247; Front</button>
+      <button id="lowBtn" title="Halve resolution/fps for marginal Wi-Fi or Bluetooth">&#128031; Low bandwidth</button>
     </div>
     <div class="row">
       <input id="textInput" placeholder="Type &rarr; tablet's focused field" autocomplete="off">
@@ -306,6 +307,12 @@
     lens = lens === 'back' ? 'front' : 'back';
     send({ type: 'camera', lens: lens });
     $('lensBtn').textContent = lens === 'back' ? '\uD83D\uDCF7 Front' : '\uD83D\uDCF7 Back';
+  });
+  var lowBand = false;
+  $('lowBtn').addEventListener('click', function () {
+    lowBand = !lowBand;
+    send({ type: 'lowband', on: lowBand });
+    $('lowBtn').classList.toggle('on', lowBand);
   });
   $('sendText').addEventListener('click', function () {
     var v = $('textInput').value;
