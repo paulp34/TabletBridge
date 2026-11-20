@@ -46,6 +46,7 @@ class BridgeService : LifecycleService() {
     private var screenStreamer: ScreenStreamer? = null
     private var lastCameraMeta: String? = null
     private var lastScreenMeta: String? = null
+    private val bgExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     private fun frameSink() = object : FrameSink {
         override fun broadcastBinary(channel: Int, data: ByteArray) {
@@ -102,7 +103,10 @@ class BridgeService : LifecycleService() {
             ACTION_SCREEN -> {
                 val code = intent.getIntExtra(EXTRA_RESULT_CODE, -1)
                 val data = IntentCompat.getParcelableExtra(intent, EXTRA_DATA, Intent::class.java)
-                if (code != -1 && data != null) startScreen(code, data)
+                if (code != -1 && data != null) {
+                    // Screen capture setup does network writes — keep it off the main thread.
+                    bgExecutor.execute { startScreen(code, data) }
+                }
             }
             else -> startBridge()
         }

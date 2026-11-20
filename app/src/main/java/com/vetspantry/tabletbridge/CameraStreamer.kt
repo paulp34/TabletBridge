@@ -176,9 +176,12 @@ class CameraStreamer(
             if (mediaImage != null) {
                 mlStarted = try {
                     val inputImage = InputImage.fromMediaImage(mediaImage, rotation)
+                    // ML Kit callbacks arrive on the main thread by default;
+                    // route them to our analyzer thread — network writes are
+                    // forbidden on the Android main thread.
                     scanner.process(inputImage)
-                        .addOnSuccessListener { barcodes -> handleBarcodes(barcodes) }
-                        .addOnCompleteListener { image.close() }
+                        .addOnSuccessListener(analyzerExecutor) { barcodes -> handleBarcodes(barcodes) }
+                        .addOnCompleteListener(analyzerExecutor) { image.close() }
                     true
                 } catch (t: Throwable) {
                     Diag.log("barcode process() failed: ${t.javaClass.simpleName}: ${t.message}")
