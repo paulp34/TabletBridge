@@ -174,39 +174,50 @@ class CameraStreamer(
             // 2) Barcode detection on the original frame (ML Kit handles rotation).
             val mediaImage = image.image
             if (mediaImage != null) {
-                mlStarted = true
-                val inputImage = InputImage.fromMediaImage(mediaImage, rotation)
-                scanner.process(inputImage)
-                    .addOnSuccessListener { barcodes -> handleBarcodes(barcodes) }
-                    .addOnCompleteListener { image.close() }
+                mlStarted = try {
+                    val inputImage = InputImage.fromMediaImage(mediaImage, rotation)
+                    scanner.process(inputImage)
+                        .addOnSuccessListener { barcodes -> handleBarcodes(barcodes) }
+                        .addOnCompleteListener { image.close() }
+                    true
+                } catch (t: Throwable) {
+                    Diag.log("barcode process() failed: ${t.javaClass.simpleName}: ${t.message}")
+                    false
+                }
             }
-        } catch (e: Exception) {
-            // fall through: finally closes the frame unless ML Kit owns it
+        } catch (t: Throwable) {
+            Diag.log("analyze failed: ${t.javaClass.simpleName}: ${t.message}\n" +
+                t.stackTraceToString().lineSequence().take(8).joinToString("\n"))
         } finally {
             if (!mlStarted) image.close()
         }
     }
 
     private fun handleBarcodes(barcodes: List<Barcode>) {
-        val b = barcodes.firstOrNull() ?: return
-        val value = b.rawValue ?: return
-        val now = SystemClock.elapsedRealtime()
-        if (value == lastBarcode && now - lastBarcodeAt < 1500) return // de-dupe
-        lastBarcode = value
-        lastBarcodeAt = now
+        try {
+            val b = barcodes.firstOrNull() ?: return
+            val value = b.rawValue ?: return
+            val now = SystemClock.elapsedRealtime()
+            if (value == lastBarcode && now - lastBarcodeAt < 1500) return // de-dupe
+            lastBarcode = value
+            lastBarcodeAt = now
 
-        val json = JSONObject()
-            .put("type", "barcode")
-            .put("value", value)
-            .put("format", formatName(b.format))
-        val box = b.boundingBox
-        if (box != null) {
-            json.put(
-                "box",
-                JSONArray().put(box.left).put(box.top).put(box.width()).put(box.height())
-            )
+            val json = JSONObject()
+                .put("type", "barcode")
+                .put("value", value)
+                .put("format", formatName(b.format))
+            val box = b.boundingBox
+            if (box != null) {
+                json.put(
+                    "box",
+                    JSONArray().put(box.left).put(box.top).put(box.width()).put(box.height())
+                )
+            }
+            sink.broadcastText(json.toString())
+        } catch (t: Throwable) {
+            Diag.log("handleBarcodes failed: ${t.javaClass.simpleName}: ${t.message}\n" +
+                t.stackTraceToString().lineSequence().take(8).joinToString("\n"))
         }
-        sink.broadcastText(json.toString())
     }
 
     private fun formatName(format: Int): String = when (format) {

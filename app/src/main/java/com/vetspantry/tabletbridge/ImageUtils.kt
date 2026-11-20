@@ -13,7 +13,8 @@ import java.nio.ByteBuffer
 
 object ImageUtils {
 
-    /** Converts a CameraX YUV_420_888 frame to NV21 layout. */
+    /** Converts a CameraX YUV_420_888 frame to NV21 layout.
+     *  Works on buffer duplicates so the original planes stay pristine for ML Kit. */
     fun yuv420ToNv21(image: ImageProxy): ByteArray? {
         return try {
             val width = image.width
@@ -22,7 +23,7 @@ object ImageUtils {
             val nv21 = ByteArray(ySize + 2 * (ySize / 4))
 
             val yPlane = image.planes[0]
-            val yBuffer = yPlane.buffer
+            val yBuffer = yPlane.buffer.duplicate()
             val yRowStride = yPlane.rowStride
             if (yRowStride == width) {
                 yBuffer.get(nv21, 0, ySize)
@@ -35,8 +36,8 @@ object ImageUtils {
 
             val uPlane = image.planes[1]
             val vPlane = image.planes[2]
-            val uBuffer = uPlane.buffer
-            val vBuffer = vPlane.buffer
+            val uBuffer = uPlane.buffer.duplicate()
+            val vBuffer = vPlane.buffer.duplicate()
             var pos = ySize
             for (row in 0 until height / 2) {
                 var vIndex = row * vPlane.rowStride
@@ -50,6 +51,7 @@ object ImageUtils {
             }
             nv21
         } catch (e: Exception) {
+            Diag.log("yuv420ToNv21 failed: ${e.javaClass.simpleName}: ${e.message}")
             null
         }
     }

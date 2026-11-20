@@ -88,6 +88,7 @@ class BridgeService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
+        Diag.init(this)
         createChannel()
     }
 

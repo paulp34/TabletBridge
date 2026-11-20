@@ -167,7 +167,8 @@ class BridgeServer(
                 closeQuietly(socket)
             }
             path.startsWith("/status") -> {
-                respond(output, "200 OK", "text/plain; charset=utf-8", statusText().toByteArray(Charsets.UTF_8))
+                val body = statusText() + "\n--- app diagnostics ---\n" + Diag.dump()
+                respond(output, "200 OK", "text/plain; charset=utf-8", body.toByteArray(Charsets.UTF_8))
                 closeQuietly(socket)
             }
             path.startsWith("/diag") -> {
@@ -272,6 +273,9 @@ class BridgeServer(
                     output.write(payload)
                     output.flush()
                 } catch (e: IOException) {
+                    kill()
+                } catch (t: Throwable) {
+                    Diag.log("sendFrame ${t.javaClass.simpleName}: ${t.message}")
                     kill()
                 }
             }
