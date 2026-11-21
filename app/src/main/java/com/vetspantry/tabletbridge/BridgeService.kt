@@ -83,7 +83,9 @@ class BridgeService : LifecycleService() {
         }
 
         override fun onError(message: String) {
-            android.util.Log.e("BridgeService", message)
+            Diag.log("SERVER ERROR: $message")
+            // A dead server (e.g. port busy) must not keep showing "RUNNING".
+            running = false
         }
     }
 

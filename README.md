@@ -27,7 +27,14 @@ Q90 tablet (TabletBridge APK)                 PC
   front/back camera.
 - **Remote input**: clicks/drags on the (optional) screen pane inject
   taps/swipes/text on the tablet; Back/Home/Recents buttons included.
-- **Passcode**: every session requires the 6-digit passcode shown in the app.
+- **Passcode**: every session requires the 6-digit passcode shown in the app
+  (it regenerates if the app is reinstalled — read it from the app's status
+  screen). The browser console picks it up automatically; only the wedge
+  scripts need it passed in.
+- **Diagnostics**: `http://<tablet-ip>:8787/status` shows the server's last 60
+  connection events plus persistent app diagnostics (survives crashes).
+- **Low bandwidth**: the console's 🐢 toggle halves resolution/fps for
+  marginal Wi-Fi or Bluetooth links.
 
 ## Tablet setup (one time)
 
@@ -49,13 +56,14 @@ Q90 tablet (TabletBridge APK)                 PC
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -File host\wedge.ps1
-# or pass the passcode:  ... wedge.ps1 -Passcode 123456
+powershell -ExecutionPolicy Bypass -File host\wedge.ps1                       # USB (adb forward)
+powershell -ExecutionPolicy Bypass -File host\wedge.ps1 -Passcode 123456 -Host_ 192.168.43.1   # Wi-Fi direct
 ```
 
 macOS/Linux (Node 22+; macOS asks for Accessibility permission once):
 ```bash
-node host/wedge.js 123456
+node host/wedge.js 123456           # USB (adb forward)
+node host/wedge.js 123456 192.168.43.1   # Wi-Fi direct
 ```
 
 The wedge keeps running; scan a label with the tablet camera and the code is

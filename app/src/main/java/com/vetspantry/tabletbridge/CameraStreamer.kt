@@ -247,10 +247,12 @@ class CameraStreamer(
                 provider?.unbindAll()
             } catch (_: Exception) {
             }
-        }
-        try {
-            scanner.close()
-        } catch (_: Exception) {
+            // Close the detector only after no more frames can arrive,
+            // otherwise in-flight tasks would hit a closed detector.
+            try {
+                scanner.close()
+            } catch (_: Exception) {
+            }
         }
         analyzerThread.quitSafely()
     }

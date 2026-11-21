@@ -6,7 +6,8 @@
 # Requires: adb (Android platform-tools) on PATH and the tablet connected via USB.
 
 param(
-  [string]$Passcode = $(if ($env:TB_PASSCODE) { $env:TB_PASSCODE } else { '' })
+  [string]$Passcode = $(if ($env:TB_PASSCODE) { $env:TB_PASSCODE } else { '' }),
+  [string]$Host_ = ''   # optional: tablet's Wi-Fi IP (e.g. 192.168.43.1) - skips adb
 )
 
 $ErrorActionPreference = 'Stop'
@@ -93,16 +94,22 @@ if (-not $Passcode) {
   $Passcode = Read-Host 'Enter the passcode shown in the TabletBridge app'
 }
 
-Write-Host '[1/3] adb forward tcp:8787 tcp:8787'
-adb forward tcp:8787 tcp:8787
-if ($LASTEXITCODE -ne 0) {
-  Write-Error 'adb failed. Install platform-tools (https://developer.android.com/tools/releases/platform-tools) and connect the tablet via USB.'
-  exit 1
+if ($Host_) {
+  $target = "ws://${Host_}:8787/ws"
+  Write-Host "[1/3] direct Wi-Fi mode -> ${Host_}:8787"
+} else {
+  $target = "ws://127.0.0.1:8787/ws"
+  Write-Host '[1/3] adb forward tcp:8787 tcp:8787'
+  adb forward tcp:8787 tcp:8787
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error 'adb failed. Install platform-tools (https://developer.android.com/tools/releases/platform-tools) and connect the tablet via USB.'
+    exit 1
+  }
 }
 
-Write-Host "[2/3] connecting to ws://127.0.0.1:8787/ws"
+Write-Host "[2/3] connecting to $target"
 $ws = [System.Net.WebSockets.ClientWebSocket]::new()
-$uri = [Uri]"ws://127.0.0.1:8787/ws?key=$Passcode"
+$uri = [Uri]$target
 $cts = [CancellationTokenSource]::new()
 $ws.ConnectAsync($uri, $cts.Token).GetAwaiter().GetResult()
 

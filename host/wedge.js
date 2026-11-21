@@ -3,8 +3,10 @@
 // into the focused window (e.g. Mendure DME) as a fast keystroke burst plus
 // Enter - identical to a keyboard-wedge scanner.
 //
-// Usage: node wedge.js [passcode]
-// Requires: adb on PATH, tablet connected via USB, Node 22+.
+// Usage: node wedge.js <passcode> [tablet-ip]
+//   tablet-ip: optional - connect over Wi-Fi directly (skips adb; needs the
+//   Mac and tablet on a network where they can reach each other).
+// Requires: Node 22+; adb on PATH for USB mode.
 // macOS: the terminal needs Accessibility permission (System Settings >
 // Privacy & Security > Accessibility) for System Events keystroke injection.
 
@@ -12,14 +14,23 @@ const { execFileSync } = require('child_process');
 const os = require('os');
 
 const passcode = process.argv[2] || process.env.TB_PASSCODE || process.env.TB_KEY;
+const host = process.argv[3] || '';
 if (!passcode) {
-  console.error('Usage: node wedge.js <passcode>');
+  console.error('Usage: node wedge.js <passcode> [tablet-ip]');
+  console.error('  tablet-ip: optional - connect over Wi-Fi directly (skips adb)');
   process.exit(1);
 }
 
-execFileSync('adb', ['forward', 'tcp:8787', 'tcp:8787'], { stdio: 'inherit' });
+if (host) {
+  console.log(`[1/3] direct Wi-Fi mode -> ${host}:8787`);
+} else {
+  console.log('[1/3] adb forward tcp:8787 tcp:8787');
+  execFileSync('adb', ['forward', 'tcp:8787', 'tcp:8787'], { stdio: 'inherit' });
+}
 
-const ws = new WebSocket(`ws://127.0.0.1:8787/ws?key=${encodeURIComponent(passcode)}`);
+const wsUrl = (host ? `ws://${host}:8787/ws` : 'ws://127.0.0.1:8787/ws') +
+  `?key=${encodeURIComponent(passcode)}`;
+const ws = new WebSocket(wsUrl);
 ws.binaryType = 'arraybuffer';
 
 function typeMac(value) {
